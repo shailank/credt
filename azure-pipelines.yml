@@ -1,0 +1,159 @@
+trigger: none
+#  branches:
+#    include:
+#    - main
+ 
+pool:
+  vmImage: Ubuntu Latest
+
+variables:
+- group: AWS-keys
+- group: AWS-reference-keys
+- group: Kotak-ECR-Credentials
+- name: appName
+  value: $(Build.DefinitionName)
+- name: imageName
+  value: $(appName)
+- name: REPO_NAME
+  value: 'creditcardportal-fe'  
+- name:  tag
+  value: '$(appName)-$(Build.BuildId).$(Build.DefinitionVersion)DEV'
+- name:  tag1
+  value: '$(appName)-$(Build.BuildId).$(Build.DefinitionVersion)UAT'
+- name:  tag2
+  value: '$(appName)-$(Build.BuildId).$(Build.DefinitionVersion)PROD'
+- name:  workingDir
+  value: '/'
+#- name:  APP_NAME
+#  value: $(DOCKER_REPOSITORY_NAME)
+- name: AWS_CREDENTIAL
+  value: 'Kotak-ECR-Credentials'
+- name:  DOCKER_BUILDKIT
+  value: 1
+- name:  DOCKER_REPOSITORY
+  value: '$(AWS_ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com/$(REPO_NAME)'
+
+###Build for DEV
+
+stages:
+- stage: BuiildforDEV
+  displayName: DEV
+  
+  pool:
+    vmImage: Ubuntu Latest
+
+  jobs:
+  - deployment: deploy
+    displayName: Deploy
+    environment: DEVofPortalService
+    strategy: 
+      runOnce:
+        deploy:
+          steps:
+          - checkout: self
+          - script: |
+              docker login -u AWS https://$(AWS_ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com -p $(aws ecr get-login-password --region $(AWS_REGION))
+            displayName: 'Login to AWS ECR'
+            env:
+              AWS_DEFAULT_REGION: $(AWS_DEFAULT_REGION)
+              AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
+              AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
+              
+          - task: DownloadSecureFile@1
+            name: envFile
+            displayName: 'Download cc_front_env_dev File'
+            inputs:
+              secureFile: 'cc_front_env_dev'
+            
+          - task: CmdLine@2
+            inputs:
+              script: |
+                echo Installing $(envFile.secureFilePath) to the $(System.DefaultWorkingDirectory) directory...
+                sudo cp $(envFile.secureFilePath) $(System.DefaultWorkingDirectory)/.env
+                sudo chown root:root $(System.DefaultWorkingDirectory)/.env
+                sudo chmod a+r $(System.DefaultWorkingDirectory)/.env              
+   
+          - task: Docker@2
+            displayName: Builds and push an image
+            inputs:
+              repository: $(DOCKER_REPOSITORY)
+              command: buildAndPush
+              Dockerfile: Dockerfile
+              tags: |
+                $(tag)
+
+          - task: qetza.replacetokens.replacetokens-task.replacetokens@5
+            displayName: 'Replace tokens in value-template-svc.yaml'
+            inputs:
+              targetFiles: 'value-template-svc.yaml'
+
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish Artifact: yaml'
+            inputs:
+              PathtoPublish: 'value-template-svc.yaml'
+              ArtifactName: yaml
+#latest
+#$(Build.BuildNumber)              
+
+###Build for UAT
+
+
+- stage: BuildforUAT
+  displayName: UAT
+  dependsOn: []
+  
+  pool:
+    vmImage: Ubuntu Latest
+    
+  jobs:
+  - deployment: deploy
+    displayName: Deploy
+    environment: UATofPortalService
+    strategy: 
+      runOnce:
+        deploy:
+          steps:
+          - checkout: self
+          - script: |
+              docker login -u AWS https://$(AWS_ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com -p $(aws ecr get-login-password --region $(AWS_REGION))
+            displayName: 'Login to AWS ECR'
+            env:
+              AWS_DEFAULT_REGION: $(AWS_DEFAULT_REGION)
+              AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
+              AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
+              
+          - task: DownloadSecureFile@1
+            name: envFile
+            displayName: 'Download cc_front_env_uat File'
+            inputs:
+              secureFile: 'cc_front_env_uat'
+            
+          - task: CmdLine@2
+            inputs:
+              script: |
+                echo Installing $(envFile.secureFilePath) to the $(System.DefaultWorkingDirectory) directory...
+                sudo cp $(envFile.secureFilePath) $(System.DefaultWorkingDirectory)/.env
+                sudo chown root:root $(System.DefaultWorkingDirectory)/.env
+                sudo chmod a+r $(System.DefaultWorkingDirectory)/.env                 
+   
+          - task: Docker@2
+            displayName: Builds and push an image
+            inputs:
+              repository: $(DOCKER_REPOSITORY)
+              command: buildAndPush
+              Dockerfile: Dockerfile
+              tags: |
+                $(tag1)
+
+          - task: qetza.replacetokens.replacetokens-task.replacetokens@5
+            displayName: 'Replace tokens in value-template-svc-uat.yaml'
+            inputs:
+              targetFiles: 'value-template-svc-uat.yaml'
+
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish Artifact: yaml'
+            inputs:
+              PathtoPublish: 'value-template-svc-uat.yaml'
+              ArtifactName: yaml
+#          latest
+#         $(Build.BuildNumber)
